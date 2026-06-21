@@ -1,0 +1,16 @@
+{
+  "name": "carbonwise",
+  "version": "1.0.0",
+  "description": "CarbonWise - Personal Carbon Footprint Tracker and Simulator",
+  "main": "test.js",
+  "scripts": {
+    "test": "node test.js"
+  },
+  "keywords": [
+    "sustainability",
+    "carbon-footprint",
+    "tracker"
+  ],
+  "author": "CarbonWise Team",
+  "license": "MIT"
+}
