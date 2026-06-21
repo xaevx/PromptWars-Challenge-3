@@ -1,16 +1,28 @@
 {
   "name": "carbonwise",
   "version": "1.0.0",
-  "description": "CarbonWise - Personal Carbon Footprint Tracker and Simulator",
-  "main": "test.js",
+  "description": "CarbonWise - A production-quality personal carbon footprint awareness platform. Track daily environmental impact across transport, energy, food, shopping and waste. Features an emissions calculator, behaviour-change simulator, action plan, offset calculator, and interactive trivia quiz.",
+  "main": "index.html",
   "scripts": {
-    "test": "node test.js"
+    "test": "node test.js",
+    "start": "npx serve . --listen 3000"
   },
   "keywords": [
     "sustainability",
     "carbon-footprint",
-    "tracker"
+    "tracker",
+    "climate",
+    "emissions",
+    "co2",
+    "green",
+    "environment",
+    "dashboard",
+    "simulator"
   ],
   "author": "CarbonWise Team",
-  "license": "MIT"
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "devDependencies": {}
 }

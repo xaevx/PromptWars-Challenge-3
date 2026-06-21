@@ -6,6 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="theme-color" content="#0d9488">
   <meta name="author" content="CarbonWise">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; script-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src https://fonts.gstatic.com;">
   <title>CarbonWise — Personal Carbon Intelligence Dashboard</title>
   <meta name="description"
     content="Track your daily carbon footprint, analyze your impact categories, simulate eco-friendly lifestyle changes, and build your personalized reduction action plan.">
@@ -283,6 +284,19 @@
       background: linear-gradient(135deg, var(--primary), var(--success));
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
+    }
+
+    /* Visually hidden but accessible to screen readers */
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
     }
 
     /* Skip navigation link for keyboard/screen reader users */
@@ -1767,6 +1781,8 @@
       </header>
 
       <!-- SCROLL CANVAS -->
+      <!-- Screen reader status announcer for tab navigation -->
+      <div id="sr-status" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
       <div class="content-viewport">
 
         <!-- 1. DASHBOARD VIEW -->
@@ -2001,8 +2017,8 @@
                     <span class="form-label">Weekly Car Travel</span>
                     <span class="form-value-badge" id="val-carDist">-- km</span>
                   </div>
-                  <input type="range" id="input-carDist" min="0" max="1000" step="10">
-                  <span class="helper-text">Estimated average mileage driven per week.</span>
+                  <input type="range" id="input-carDist" min="0" max="1000" step="10" aria-describedby="help-carDist">
+                  <span class="helper-text" id="help-carDist">Estimated average mileage driven per week.</span>
                 </div>
 
                 <div class="form-group">
@@ -3246,8 +3262,28 @@
     ];
 
     /* -------------------------------------------------------------
-       2. EMISSIONS CALCULATION ENGINE
+       2. EMISSIONS CALCULATION ENGINE — Named Constants
        ------------------------------------------------------------- */
+    /** @const {number} Weeks in a year (used to annualise flight emissions) */
+    const WEEKS_PER_YEAR = 52;
+    /** @const {number} Average weeks per month (used for monthly<->weekly conversions) */
+    const WEEKS_PER_MONTH = 4.33;
+    /** @const {number} Average kWh draw of a typical air conditioner unit */
+    const AC_KWH_PER_HOUR = 0.5;
+    /** @const {number} lbs per kg conversion factor */
+    const LBS_PER_KG = 2.20462;
+    /** @const {number} Months per year averaged to weeks conversion */
+    const MONTHS_TO_WEEKS = 4.345;
+    /** @const {number} Minimum allowed waste floor (kg/week) */
+    const WASTE_FLOOR_KG = 0.5;
+
+    /**
+     * Calculates per-category weekly carbon emissions (in kg CO2e) based on
+     * a full set of user lifestyle inputs.
+     *
+     * @param {Object} inputsObj - User input values (distances, frequencies, types)
+     * @returns {{ transport: number, energy: number, food: number, shopping: number, waste: number, total: number }}
+     */
     function calculateCategoryEmissions(inputsObj) {
       const f = state.factors;
 
@@ -3262,18 +3298,18 @@
       const trainEmissions = inputsObj.trainDist * f.train;
       const rideShareEmissions = inputsObj.rideShareTrips * f.rideShare;
 
-      // Flights annualized to weekly
-      const flightsEmissions = ((inputsObj.flightsShort * f.flightShort) + (inputsObj.flightsLong * f.flightLong)) / 52;
+      // Flights annualised to weekly
+      const flightsEmissions = ((inputsObj.flightsShort * f.flightShort) + (inputsObj.flightsLong * f.flightLong)) / WEEKS_PER_YEAR;
       const transportTotal = carEmissions + busEmissions + trainEmissions + rideShareEmissions + flightsEmissions;
 
       // 2. Home Energy
-      const weeklyElectricityKwh = inputsObj.electricity / 4.33;
+      const weeklyElectricityKwh = inputsObj.electricity / WEEKS_PER_MONTH;
       const cleanRatio = inputsObj.renewableRatio / 100;
 
       let electricityEmissions = weeklyElectricityKwh * (1 - cleanRatio) * f.electricityGrid;
 
       // AC cooling emissions
-      const acWeeklyKwh = inputsObj.acHours * 7 * 0.5; // assumes average 0.5 kW draw
+      const acWeeklyKwh = inputsObj.acHours * 7 * AC_KWH_PER_HOUR;
       electricityEmissions += acWeeklyKwh * (1 - cleanRatio) * f.electricityGrid;
 
       // Heating
@@ -3315,14 +3351,14 @@
       const foodTotal = dietFactor + dairyFactor + localOffset + deliveryEmissions + wasteOffset;
 
       // 4. Shopping
-      const weeklyNewClothes = inputsObj.clothingNew / 4.33;
+      const weeklyNewClothes = inputsObj.clothingNew / WEEKS_PER_MONTH;
       const secondHandRatio = inputsObj.clothingSecondHand / 100;
       const clothingEmissions = weeklyNewClothes * f.clothingItem * (1 - secondHandRatio * 0.85); // 85% footprint saving for second hand
 
-      const weeklyDevices = inputsObj.electronicsYear / 52;
+      const weeklyDevices = inputsObj.electronicsYear / WEEKS_PER_YEAR;
       const electronicsEmissions = weeklyDevices * f.electronicDevice;
 
-      const weeklyOrders = inputsObj.onlineOrders / 4.33;
+      const weeklyOrders = inputsObj.onlineOrders / WEEKS_PER_MONTH;
       const shippingEmissions = weeklyOrders * f.onlineOrder;
 
       const fastFashionPenalty = inputsObj.fastFashion ? 5.0 : 0.0;
@@ -3342,7 +3378,7 @@
       if (inputsObj.singleUsePlastic === 'daily') plasticPenalty = 3.5;
       else if (inputsObj.singleUsePlastic === 'rarely') plasticPenalty = 0.0;
 
-      const wasteTotal = Math.max(0.5, wasteBase + recyclingOffset + compostOffset + plasticPenalty);
+      const wasteTotal = Math.max(WASTE_FLOOR_KG, wasteBase + recyclingOffset + compostOffset + plasticPenalty);
 
       return {
         transport: transportTotal,
@@ -3354,7 +3390,12 @@
       };
     }
 
-    // HTML escaping helper for stored XSS mitigation
+    /**
+     * Escapes a string for safe insertion into HTML, preventing XSS.
+     * Converts &, <, >, ', " to their HTML entity equivalents.
+     * @param {string|null|undefined} str - Input string to sanitise
+     * @returns {string} HTML-safe string
+     */
     function escapeHTML(str) {
       if (str == null) return '';
       return String(str).replace(/[&<>'"]/g,
@@ -3368,7 +3409,15 @@
       );
     }
 
-    // Safe integer parsing with bounds and fallback
+    /**
+     * Safely parses an integer from a value, applying optional min/max clamping.
+     * Falls back to the provided default if parsing fails.
+     * @param {*} val - Value to parse
+     * @param {number} fallback - Default if NaN
+     * @param {number} [min] - Minimum allowed value
+     * @param {number} [max] - Maximum allowed value
+     * @returns {number}
+     */
     function safeInt(val, fallback, min, max) {
       const parsed = parseInt(val, 10);
       if (isNaN(parsed)) return fallback;
@@ -3377,7 +3426,15 @@
       return parsed;
     }
 
-    // Safe float parsing with fallback
+    /**
+     * Safely parses a float from a value, applying optional min/max clamping.
+     * Falls back to the provided default if parsing fails.
+     * @param {*} val - Value to parse
+     * @param {number} fallback - Default if NaN
+     * @param {number} [min] - Minimum allowed value
+     * @param {number} [max] - Maximum allowed value
+     * @returns {number}
+     */
     function safeFloat(val, fallback, min, max) {
       const parsed = parseFloat(val);
       if (isNaN(parsed)) return fallback;
@@ -3386,7 +3443,12 @@
       return parsed;
     }
 
-    // Convert values to selected timeframe & unit
+    /**
+     * Converts a weekly kg CO2e value into the currently selected
+     * timeframe (daily/weekly/monthly) and unit (metric/imperial).
+     * @param {number} kgWeekly - Weekly value in kg CO2e
+     * @returns {number} Converted value in currently selected unit
+     */
     function formatValue(kgWeekly) {
       let val = kgWeekly;
 
@@ -3394,17 +3456,21 @@
       if (state.timeframe === 'daily') {
         val = kgWeekly / 7;
       } else if (state.timeframe === 'monthly') {
-        val = kgWeekly * 4.345;
+        val = kgWeekly * MONTHS_TO_WEEKS;
       }
 
       // 2. Unit conversion (Metric kg to Imperial lbs)
       if (state.units === 'imperial') {
-        val = val * 2.20462;
+        val = val * LBS_PER_KG;
       }
 
       return val;
     }
 
+    /**
+     * Returns the full unit suffix string for the current timeframe and unit system.
+     * @returns {string} e.g. 'kg CO2e/wk' or 'lbs CO2e/day'
+     */
     function getUnitSuffix() {
       const weightUnit = state.units === 'metric' ? 'kg' : 'lbs';
       let timeUnit = 'wk';
@@ -3413,6 +3479,10 @@
       return `${weightUnit} CO2e/${timeUnit}`;
     }
 
+    /**
+     * Returns just the simple weight unit abbreviation for the current unit system.
+     * @returns {'kg'|'lbs'}
+     */
     function getSimpleWeightUnit() {
       return state.units === 'metric' ? 'kg' : 'lbs';
     }
@@ -3443,9 +3513,30 @@
         panel.setAttribute('tabindex', isActive ? '0' : '-1');
       });
 
-      // Update Topbar Title
-      const rawTitle = tabId.replace('-', ' ');
-      tabTitleEl.textContent = rawTitle.charAt(0).toUpperCase() + rawTitle.slice(1);
+      // Update Topbar Title with proper capitalisation
+      const TAB_TITLES = {
+        'dashboard': 'Dashboard',
+        'log-activity': 'Log Activity',
+        'insights': 'Insights & Simulator',
+        'action-plan': 'Action Plan',
+        'history': 'Footprint History',
+        'learn': 'Learn',
+        'settings': 'Settings'
+      };
+      const tabTitle = TAB_TITLES[tabId] || tabId;
+      tabTitleEl.textContent = tabTitle;
+
+      // Announce tab switch to screen readers
+      const srStatus = document.getElementById('sr-status');
+      if (srStatus) srStatus.textContent = `Navigated to ${tabTitle}`;
+
+      // Move focus to the active panel for keyboard users (defer to allow paint)
+      const activePanel = document.getElementById(`tab-${tabId}`);
+      if (activePanel) {
+        setTimeout(() => {
+          activePanel.focus({ preventScroll: false });
+        }, 50);
+      }
 
       // Close mobile navigation drawer if open
       document.getElementById('sidebar').classList.remove('open');
@@ -3562,10 +3653,36 @@
 
       if (differencePct <= 0) {
         footprintTrendEl.className = 'kpi-trend trend-down';
-        footprintTrendEl.innerHTML = `<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5"/></svg><span>${Math.abs(differencePct)}% below target</span>`;
+        footprintTrendEl.innerHTML = '';
+        const downSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        downSvg.setAttribute('width', '14'); downSvg.setAttribute('height', '14');
+        downSvg.setAttribute('fill', 'none'); downSvg.setAttribute('stroke', 'currentColor');
+        downSvg.setAttribute('stroke-width', '2.5'); downSvg.setAttribute('viewBox', '0 0 24 24');
+        downSvg.setAttribute('aria-hidden', 'true');
+        const downPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        downPath.setAttribute('stroke-linecap', 'round'); downPath.setAttribute('stroke-linejoin', 'round');
+        downPath.setAttribute('d', 'M19.5 8.25l-7.5 7.5-7.5-7.5');
+        downSvg.appendChild(downPath);
+        const downSpan = document.createElement('span');
+        downSpan.textContent = `${Math.abs(differencePct)}% below target`;
+        footprintTrendEl.appendChild(downSvg);
+        footprintTrendEl.appendChild(downSpan);
       } else {
         footprintTrendEl.className = 'kpi-trend trend-up';
-        footprintTrendEl.innerHTML = `<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5"/></svg><span>${differencePct}% above target limit</span>`;
+        footprintTrendEl.innerHTML = '';
+        const upSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        upSvg.setAttribute('width', '14'); upSvg.setAttribute('height', '14');
+        upSvg.setAttribute('fill', 'none'); upSvg.setAttribute('stroke', 'currentColor');
+        upSvg.setAttribute('stroke-width', '2.5'); upSvg.setAttribute('viewBox', '0 0 24 24');
+        upSvg.setAttribute('aria-hidden', 'true');
+        const upPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        upPath.setAttribute('stroke-linecap', 'round'); upPath.setAttribute('stroke-linejoin', 'round');
+        upPath.setAttribute('d', 'M4.5 15.75l7.5-7.5 7.5 7.5');
+        upSvg.appendChild(upPath);
+        const upSpan = document.createElement('span');
+        upSpan.textContent = `${differencePct}% above target limit`;
+        footprintTrendEl.appendChild(upSvg);
+        footprintTrendEl.appendChild(upSpan);
       }
 
       // Sustainability Score Calculation (A-F based on target limit match)
@@ -3597,7 +3714,8 @@
 
       const scoreBadge = document.getElementById('kpi-score-badge');
       scoreBadge.className = `kpi-trend ${scoreClass}`;
-      scoreBadge.innerHTML = `<span>${grade}</span>`;
+      // Use textContent — grade strings are internal constants, no HTML needed
+      scoreBadge.textContent = grade;
 
       // Primary Driver Card
       const categories = [
@@ -3612,7 +3730,7 @@
       const topCatPct = Math.round((topCat.val / weeklyTotal) * 100);
 
       document.getElementById('kpi-driver').textContent = topCat.name;
-      document.getElementById('kpi-driver-sub').innerHTML = `<span>${topCatPct}% of total emissions</span>`;
+      document.getElementById('kpi-driver-sub').textContent = `${topCatPct}% of total emissions`;
 
       // Update Quick Log habits widgets
       document.getElementById('quick-car-input').value = state.inputs.carDist;
@@ -4241,10 +4359,10 @@
 
       if (pctDiff <= 0) {
         comparisonText.className = 'helper-text trend-down';
-        comparisonText.innerHTML = `★ Stay within target limit (${Math.abs(pctDiff)}% headroom)`;
+        comparisonText.textContent = `★ Stay within target limit (${Math.abs(pctDiff)}% headroom)`;
       } else {
         comparisonText.className = 'helper-text trend-up';
-        comparisonText.innerHTML = `⚠ Exceeds weekly target limit by ${pctDiff}%`;
+        comparisonText.textContent = `⚠ Exceeds weekly target limit by ${pctDiff}%`;
       }
 
       // Categories values
@@ -5112,16 +5230,33 @@
 
       factorsList.forEach(item => {
         const tr = document.createElement('tr');
-        tr.innerHTML = `
-          <td><strong>${item.label}</strong></td>
-          <td>${item.unit}</td>
-          <td>
-            <input type="number" class="factor-input tabular" value="${item.val}" step="0.01" min="0.0" data-key="${item.key}">
-          </td>
-        `;
+
+        // Use DOM construction — no innerHTML with variable data
+        const tdLabel = document.createElement('td');
+        const strong  = document.createElement('strong');
+        strong.textContent = item.label;
+        tdLabel.appendChild(strong);
+
+        const tdUnit = document.createElement('td');
+        tdUnit.textContent = item.unit;
+
+        const tdInput = document.createElement('td');
+        const inp = document.createElement('input');
+        inp.type = 'number';
+        inp.className = 'factor-input tabular';
+        inp.value = item.val;
+        inp.step = '0.01';
+        inp.min = '0.0';
+        inp.dataset.key = item.key;
+        inp.setAttribute('aria-label', `${item.label} coefficient`);
+        tdInput.appendChild(inp);
+
+        tr.appendChild(tdLabel);
+        tr.appendChild(tdUnit);
+        tr.appendChild(tdInput);
 
         // Handle coefficient override on input edit
-        const input = tr.querySelector('.factor-input');
+        const input = inp;
         input.addEventListener('change', (e) => {
           const val = parseFloat(e.target.value);
           if (!isNaN(val) && val >= 0) {
